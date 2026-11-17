@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>降智检测管理</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=20261116-cron-bark-test1" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div>
+          <h1>检测管理</h1>
+          <p>分组、凭据与巡检计划</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a class="button secondary" href="/">返回结果</a>
+        <button id="logout" class="button secondary" type="button" hidden>退出</button>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <section id="login-panel" class="login-panel">
+        <form id="login-form" class="panel compact-panel">
+          <div class="panel-heading">
+            <h2>管理员登录</h2>
+          </div>
+          <label class="field">
+            <span>管理员口令</span>
+            <input id="admin-token" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="button primary full" type="submit">登录</button>
+          <p id="login-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
+
+      <div id="admin-content" hidden>
+        <section class="panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <h2>上游地址</h2>
+              <p id="base-url-status"></p>
+            </div>
+          </div>
+          <form id="settings-form" class="inline-form">
+            <label class="field grow">
+              <span>New API Base URL</span>
+              <input id="base-url" type="url" placeholder="https://example.com/v1" autocomplete="off" />
+            </label>
+            <button class="button primary" type="submit">更新地址</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <h2>Bark 通知</h2>
+              <p id="bark-status"></p>
+            </div>
+          </div>
+          <form id="notification-form" class="notification-form">
+            <label class="field grow">
+              <span>Bark 推送地址</span>
+              <input id="bark-url" type="url" placeholder="https://api.day.app/设备密钥" autocomplete="off" />
+              <small>地址加密保存且不回显。</small>
+            </label>
+            <label class="field">
+              <span>通知范围</span>
+              <select id="notify-mode">
+                <option value="alerts">仅降智或失败</option>
+                <option value="all">所有检测结果</option>
+              </select>
+            </label>
+            <div class="notification-actions">
+              <button class="button primary" type="submit">保存</button>
+              <button id="test-bark" class="button secondary" type="button">发送测试</button>
+              <button id="clear-bark" class="button secondary" type="button">关闭通知</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading split-heading">
+            <div>
+              <h2>检测分组</h2>
+              <p>默认鹈鹕骑行，北京时间 08:00 至 22:00 每 120 分钟执行一次。</p>
+            </div>
+            <button id="new-target" class="button primary" type="button">新增分组</button>
+          </div>
+          <div id="target-list" class="admin-target-list"></div>
+          <div id="admin-empty" class="empty-state compact-empty" hidden>
+            <strong>尚未配置分组</strong>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>最近失败</h2>
+            <p>仅管理员可见，最多显示最近 10 条最终失败记录。</p>
+          </div>
+          <div id="failure-list" class="failure-list"></div>
+          <div id="failure-empty" class="empty-state compact-empty" hidden>
+            <strong>暂无失败记录</strong>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <dialog id="target-dialog" class="form-dialog">
+      <form id="target-form" method="dialog">
+        <div class="dialog-header">
+          <strong id="target-dialog-title">新增检测分组</strong>
+          <button id="target-close" class="icon-button" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <input id="target-id" type="hidden" />
+        <div class="form-grid">
+          <label class="field wide">
+            <span>分组显示名称</span>
+            <input id="target-name" maxlength="80" required />
+          </label>
+          <label class="field">
+            <span>检测类型</span>
+            <select id="target-benchmark">
+              <option value="pelican">鹈鹕骑行</option>
+              <option value="candy">糖果测试</option>
+              <option value="creative">自由创作</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>推理强度</span>
+            <select id="target-effort">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>服务档位</span>
+            <select id="target-tier">
+              <option value="">默认</option>
+              <option value="priority">Fast</option>
+              <option value="ultrafast">UltraFast</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Cron 表达式</span>
+            <input id="target-cron" value="0 8-22/2 * * *" placeholder="0 8-22/2 * * *" required />
+          </label>
+          <label class="field">
+            <span>保留最近次数</span>
+            <input id="target-retain" type="number" min="1" max="60" value="6" required />
+          </label>
+          <label class="field wide">
+            <span>分组专用 API Key</span>
+            <input id="target-key" type="password" autocomplete="new-password" />
+            <small id="key-hint">Key 只在保存时提交。</small>
+          </label>
+          <label class="switch-row wide">
+            <input id="target-enabled" type="checkbox" checked />
+            <span>启用自动检测</span>
+          </label>
+          <label class="switch-row wide">
+            <input id="target-public-visible" type="checkbox" checked />
+            <span>在用户检测页面显示此分组</span>
+          </label>
+        </div>
+        <p id="target-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="target-cancel" class="button secondary" type="button">取消</button>
+          <button class="button primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script src="/assets/admin.js?v=20261116-daytime-cron-refresh2" defer></script>
+  </body>
+</html>

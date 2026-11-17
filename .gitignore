@@ -1,0 +1,10 @@
+.env
+data/
+backups/
+secrets/
+deploy/
+*.tmp
+*.db
+*.db-*
+*.sqlite
+*.sqlite3

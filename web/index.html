@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111315" media="(prefers-color-scheme: dark)" />
+    <title>降智检测</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=20261117-embed1" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div>
+          <h1>降智检测</h1>
+          <p id="summary">正在读取检测记录</p>
+        </div>
+      </div>
+      <section class="history-monitor" aria-label="最近 60 次检测状态">
+        <div class="history-heading">
+          <strong>最近 60 次</strong>
+          <span id="history-count"></span>
+        </div>
+        <div id="history-track" class="history-track"></div>
+        <div class="history-legend" aria-hidden="true">
+          <span><i class="normal"></i>不降智</span>
+          <span><i class="degraded"></i>降智</span>
+          <span><i class="failed"></i>失败</span>
+        </div>
+      </section>
+      <div class="header-actions">
+        <span class="live-indicator"><span></span>自动巡检</span>
+        <a class="icon-button" href="/admin" aria-label="管理设置" title="管理设置">&#9881;</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="toolbar" aria-label="检测分组">
+        <div id="filters" class="filters" role="tablist"></div>
+        <button id="refresh" class="button secondary" type="button">刷新</button>
+      </section>
+      <section id="target-strip" class="target-strip" aria-label="巡检状态"></section>
+      <section id="results" class="result-grid" aria-live="polite"></section>
+      <div id="empty" class="empty-state" hidden>
+        <strong>暂无检测记录</strong>
+        <span>管理员配置分组并完成首次检测后，记录会显示在这里。</span>
+      </div>
+    </main>
+
+    <dialog id="detail-dialog" class="detail-dialog">
+      <div class="dialog-header">
+        <div>
+          <strong id="detail-title">检测详情</strong>
+          <span id="detail-time"></span>
+        </div>
+        <button id="detail-close" class="icon-button" type="button" aria-label="关闭">&times;</button>
+      </div>
+      <div id="detail-body" class="detail-body"></div>
+    </dialog>
+
+    <script src="/assets/app.js?v=20261117-embed1" defer></script>
+  </body>
+</html>

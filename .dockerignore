@@ -1,0 +1,7 @@
+.git
+data
+deploy
+backups
+secrets
+.env
+*.tmp

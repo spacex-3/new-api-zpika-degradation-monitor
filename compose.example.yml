@@ -1,0 +1,42 @@
+services:
+  monitor:
+    image: ghcr.io/spacex-3/new-api-zpika-degradation-monitor:latest
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      ALLOWED_HOST: ${ALLOWED_HOST:-localhost}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      MANXUE_BASE_URL: ${MANXUE_BASE_URL:-https://manxue.ai}
+      TRUST_CLOUDFLARE: ${TRUST_CLOUDFLARE:-false}
+      EMBED_PARENT_ORIGINS: ${EMBED_PARENT_ORIGINS:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+    secrets:
+      - encryption_key
+      - session_key
+      - admin_token_hash
+      - bootstrap_base_url
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+secrets:
+  encryption_key:
+    file: ./secrets/encryption-key
+  session_key:
+    file: ./secrets/session-key
+  admin_token_hash:
+    file: ./secrets/admin-token-hash
+  bootstrap_base_url:
+    file: ./secrets/bootstrap-base-url
