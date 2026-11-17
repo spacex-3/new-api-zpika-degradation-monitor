@@ -401,7 +401,7 @@ func (a *App) testNotification(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *App) createTarget(w http.ResponseWriter, r *http.Request) {
-	input := TargetInput{Benchmark: "pelican", Model: "gpt-6-astra", ReasoningEffort: "low", IntervalMinutes: 120, CronExpression: "0 8-22/2 * * *", RetainCount: 6, Enabled: true}
+	input := TargetInput{Benchmark: "pelican", Model: "gpt-6-astra", ReasoningEffort: "low", IntervalMinutes: 120, CronExpression: "0 8-20/2 * * 1-5", RetainCount: 6, Enabled: true}
 	if !decodeJSON(w, r, &input) {
 		return
 	}

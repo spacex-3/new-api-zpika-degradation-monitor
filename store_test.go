@@ -178,7 +178,7 @@ func TestCronScheduleUsesShanghaiWallClock(t *testing.T) {
 	if _, err := normalizeCronExpression("*/5 * * * *", 0); err == nil {
 		t.Fatal("cron interval below 10 minutes was accepted")
 	}
-	night, err := nextCronRun("0 8-22/2 * * *", time.Date(2026, 11, 16, 14, 48, 0, 0, time.UTC))
+	night, err := nextCronRun("0 8-20/2 * * 1-5", time.Date(2026, 11, 16, 14, 48, 0, 0, time.UTC))
 	if err != nil || !night.Equal(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("nighttime next run = %s, error = %v", night, err)
 	}
