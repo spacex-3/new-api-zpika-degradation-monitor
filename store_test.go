@@ -192,6 +192,66 @@ func TestCronScheduleUsesShanghaiWallClock(t *testing.T) {
 	}
 }
 
+func TestTargetsAcceptUpstreamModelSelection(t *testing.T) {
+	input, err := normalizeTargetInput(TargetInput{
+		Name: "Sol Group", Benchmark: "pelican", Model: "gpt-6.1-sol",
+		ReasoningEffort: "low", CronExpression: "0 8-20/2 * * 1-5", RetainCount: 6,
+		APIKey: "test-key",
+	}, true)
+	if err != nil || input.Model != "gpt-6.1-sol" {
+		t.Fatalf("custom upstream model was rejected: model=%q error=%v", input.Model, err)
+	}
+	input.Model = ""
+	input, err = normalizeTargetInput(input, true)
+	if err != nil || input.Model != "gpt-6-astra" {
+		t.Fatalf("empty model did not use the default: model=%q error=%v", input.Model, err)
+	}
+	input.Model = "invalid\nmodel"
+	if _, err := normalizeTargetInput(input, true); err == nil {
+		t.Fatal("model containing a control character was accepted")
+	}
+}
+
+func TestRunnerListsModelsWithStoredOrSuppliedKey(t *testing.T) {
+	store := testStore(t)
+	var authorizations []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"gpt-6.1-sol"},{"id":"gpt-6-astra"},{"id":"gpt-6.1-sol"},{"id":""}]}`)
+	}))
+	defer server.Close()
+	if err := store.SetBaseURL(server.URL + "/v1"); err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.AddTarget(TargetInput{
+		Name: "Existing", Benchmark: "pelican", Model: "gpt-6-astra",
+		ReasoningEffort: "low", CronExpression: "0 8-20/2 * * 1-5", RetainCount: 6,
+		Enabled: true, APIKey: "stored-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(store, "https://detector.example")
+	runner.client = server.Client()
+	models, err := runner.ListModels(t.Context(), target.ID, "")
+	if err != nil || strings.Join(models, ",") != "gpt-6-astra,gpt-6.1-sol" {
+		t.Fatalf("stored-key models = %v, error = %v", models, err)
+	}
+	models, err = runner.ListModels(t.Context(), "", "new-key")
+	if err != nil || strings.Join(models, ",") != "gpt-6-astra,gpt-6.1-sol" {
+		t.Fatalf("supplied-key models = %v, error = %v", models, err)
+	}
+	wantAuthorizations := "Bearer stored-key,Bearer new-key"
+	if strings.Join(authorizations, ",") != wantAuthorizations {
+		t.Fatalf("authorization headers = %v, want %s", authorizations, wantAuthorizations)
+	}
+}
+
 func TestHistoryKeepsLatestSixtyAcrossTargets(t *testing.T) {
 	store := testStore(t)
 	for i := range 4 {

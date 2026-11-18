@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,12 @@ type testResponse struct {
 	} `json:"candy"`
 }
 
+type modelListResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
 func NewRunner(store *Store, manxueBase string) *Runner {
 	return &Runner{
 		store: store, manxueBase: strings.TrimRight(manxueBase, "/"),
@@ -135,6 +142,52 @@ func (r *Runner) scheduleDue() {
 	for _, target := range r.store.DueTargets(time.Now().UTC()) {
 		r.RunNow(target.ID)
 	}
+}
+
+func (r *Runner) ListModels(ctx context.Context, targetID, suppliedKey string) ([]string, error) {
+	baseURL, apiKey, err := r.store.ModelCredentials(targetID, suppliedKey)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, errors.New("无法创建模型列表请求")
+	}
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Accept", "application/json")
+	client := *r.client
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, errors.New("无法连接上游模型接口")
+	}
+	modelsResponse, err := decodeResponse[modelListResponse](response, 4<<20)
+	if err != nil {
+		return nil, fmt.Errorf("上游模型接口返回错误（HTTP %d）", response.StatusCode)
+	}
+	seen := make(map[string]struct{}, len(modelsResponse.Data))
+	models := make([]string, 0, len(modelsResponse.Data))
+	for _, model := range modelsResponse.Data {
+		id := strings.TrimSpace(model.ID)
+		if id == "" || len(id) > 200 || strings.ContainsFunc(id, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+		if len(models) == 5000 {
+			break
+		}
+	}
+	slices.Sort(models)
+	if len(models) == 0 {
+		return nil, errors.New("上游未返回可用模型")
+	}
+	return models, nil
 }
 
 func (r *Runner) run(ctx context.Context, targetID string) error {

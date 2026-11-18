@@ -398,8 +398,8 @@ func normalizeTargetInput(input TargetInput, requireKey bool) (TargetInput, erro
 	if input.Model == "" {
 		input.Model = "gpt-6-astra"
 	}
-	if input.Model != "gpt-6-astra" {
-		return input, errors.New("当前检测仅支持 gpt-6-astra")
+	if len(input.Model) > 200 || strings.ContainsFunc(input.Model, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return input, errors.New("模型名称无效或超过 200 个字符")
 	}
 	if !slices.Contains([]string{"low", "medium", "high"}, input.ReasoningEffort) {
 		return input, errors.New("推理强度无效")
@@ -518,7 +518,7 @@ func (s *Store) AddTarget(input TargetInput) (Target, error) {
 		CronExpression:   input.CronExpression,
 		RetainCount:      input.RetainCount,
 		Enabled:          input.Enabled,
-			Hidden:           input.PublicVisible != nil && !*input.PublicVisible,
+		Hidden:           input.PublicVisible != nil && !*input.PublicVisible,
 		EncryptedAPIKey:  sealed,
 		APIKeyConfigured: true,
 		NextRunAt:        nextRunAt,
@@ -556,9 +556,9 @@ func (s *Store) UpdateTarget(id string, input TargetInput) (Target, error) {
 		target.CronExpression = input.CronExpression
 		target.RetainCount = input.RetainCount
 		target.Enabled = input.Enabled
-			if input.PublicVisible != nil {
-				target.Hidden = !*input.PublicVisible
-			}
+		if input.PublicVisible != nil {
+			target.Hidden = !*input.PublicVisible
+		}
 		target.UpdatedAt = time.Now().UTC()
 		if input.APIKey != "" {
 			sealed, sealErr := s.seal("target:"+id+":api_key", input.APIKey)
@@ -631,7 +631,7 @@ func (s *Store) AdminState(running map[string]bool) map[string]any {
 			"service_tier": target.ServiceTier, "interval_minutes": target.IntervalMinutes,
 			"cron_expression": target.CronExpression,
 			"retain_count":    target.RetainCount, "enabled": target.Enabled,
-				"public_visible": !target.Hidden,
+			"public_visible":     !target.Hidden,
 			"api_key_configured": target.APIKeyConfigured, "next_run_at": target.NextRunAt,
 			"last_run_at": target.LastRunAt, "running": running[target.ID],
 		})
@@ -779,6 +779,35 @@ func (s *Store) TargetSecrets(id string) (Target, string, string, error) {
 		return target, baseURL, apiKey, nil
 	}
 	return Target{}, "", "", os.ErrNotExist
+}
+
+func (s *Store) ModelCredentials(id, suppliedKey string) (string, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.state.Settings.BaseURLConfigured {
+		return "", "", errors.New("Base URL 尚未配置")
+	}
+	baseURL, err := s.open("settings:base_url", s.state.Settings.EncryptedBaseURL)
+	if err != nil {
+		return "", "", err
+	}
+	if apiKey := strings.TrimSpace(suppliedKey); apiKey != "" {
+		return baseURL, apiKey, nil
+	}
+	if id == "" {
+		return "", "", errors.New("请先填写 API Key")
+	}
+	for _, target := range s.state.Targets {
+		if target.ID != id {
+			continue
+		}
+		apiKey, err := s.open("target:"+id+":api_key", target.EncryptedAPIKey)
+		if err != nil {
+			return "", "", err
+		}
+		return baseURL, apiKey, nil
+	}
+	return "", "", os.ErrNotExist
 }
 
 func (s *Store) ScheduleNext(id string, started time.Time) error {

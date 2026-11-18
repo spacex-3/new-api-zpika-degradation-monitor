@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>降智检测管理</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20261116-cron-bark-test1" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20261118-model-picker1" />
   </head>
   <body>
     <header class="topbar">
@@ -86,7 +86,7 @@
           <div class="panel-heading split-heading">
             <div>
               <h2>检测分组</h2>
-              <p>默认鹈鹕骑行，北京时间 08:00 至 22:00 每 120 分钟执行一次。</p>
+              <p>默认鹈鹕骑行，工作日北京时间 08:00 至 20:00 每 120 分钟执行一次。</p>
             </div>
             <button id="new-target" class="button primary" type="button">新增分组</button>
           </div>
@@ -128,6 +128,16 @@
               <option value="candy">糖果测试</option>
               <option value="creative">自由创作</option>
             </select>
+          </label>
+          <label class="field wide">
+            <span>检测模型</span>
+            <div class="model-picker">
+              <select id="target-model" required>
+                <option value="gpt-6-astra">gpt-6-astra</option>
+              </select>
+              <button id="load-models" class="button secondary" type="button">从 Key 拉取</button>
+            </div>
+            <small>默认使用 gpt-6-astra；其他模型的鹈鹕分类结果仅供参考。</small>
           </label>
           <label class="field">
             <span>推理强度</span>
@@ -176,6 +186,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" hidden></div>
-    <script src="/assets/admin.js?v=20261116-daytime-cron-refresh2" defer></script>
+    <script src="/assets/admin.js?v=20261118-model-picker1" defer></script>
   </body>
 </html>

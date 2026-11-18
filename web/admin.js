@@ -112,7 +112,7 @@ function renderTargets() {
     const title = document.createElement('strong')
     title.textContent = target.name
     const subtitle = document.createElement('span')
-    subtitle.textContent = `${benchmarkLabels[target.benchmark]} · ${target.reasoning_effort}${target.service_tier ? ` · ${target.service_tier}` : ''}`
+    subtitle.textContent = `${benchmarkLabels[target.benchmark]} · ${target.model} · ${target.reasoning_effort}${target.service_tier ? ` · ${target.service_tier}` : ''}`
     name.append(title, subtitle)
     const schedule = stat(target.cron_expression, 'Cron')
     const retention = stat(`${target.retain_count} 次`, '结果保留')
@@ -146,6 +146,7 @@ function openTarget(target = null) {
   document.querySelector('#target-id').value = target?.id || ''
   document.querySelector('#target-name').value = target?.name || ''
   document.querySelector('#target-benchmark').value = target?.benchmark || 'pelican'
+  setModelOptions([], target?.model || 'gpt-6-astra')
   document.querySelector('#target-effort').value = target?.reasoning_effort || 'low'
   document.querySelector('#target-tier').value = target?.service_tier || ''
   document.querySelector('#target-cron').value = target?.cron_expression || '0 8-20/2 * * 1-5'
@@ -157,6 +158,43 @@ function openTarget(target = null) {
   document.querySelector('#key-hint').textContent = editing ? '留空表示继续使用已保存的 Key。' : 'Key 保存后不会再次显示。'
   document.querySelector('#target-error').textContent = ''
   document.querySelector('#target-dialog').showModal()
+}
+
+function setModelOptions(models, selected) {
+  const select = document.querySelector('#target-model')
+  const values = [...new Set(['gpt-6-astra', selected, ...models].filter(Boolean))]
+  select.replaceChildren(...values.map((model) => {
+    const option = document.createElement('option')
+    option.value = model
+    option.textContent = model
+    return option
+  }))
+  select.value = selected || 'gpt-6-astra'
+}
+
+async function loadModels() {
+  const button = document.querySelector('#load-models')
+  const targetID = document.querySelector('#target-id').value
+  const apiKey = document.querySelector('#target-key').value
+  if (!targetID && !apiKey.trim()) {
+    document.querySelector('#target-error').textContent = '新建分组时请先填写 API Key'
+    return
+  }
+  button.disabled = true
+  document.querySelector('#target-error').textContent = ''
+  try {
+    const result = await request('/api/admin/models', {
+      method: 'POST', body: JSON.stringify({ target_id: targetID, api_key: apiKey }),
+    })
+    const models = Array.isArray(result.models) ? result.models : []
+    const selected = document.querySelector('#target-model').value || 'gpt-6-astra'
+    setModelOptions(models, selected)
+    toast(`已加载 ${models.length} 个模型`)
+  } catch (error) {
+    document.querySelector('#target-error').textContent = error.message
+  } finally {
+    button.disabled = false
+  }
 }
 
 async function runTarget(id) {
@@ -252,7 +290,7 @@ document.querySelector('#target-form').addEventListener('submit', async (event) 
   const payload = {
     name: document.querySelector('#target-name').value,
     benchmark: document.querySelector('#target-benchmark').value,
-    model: 'gpt-6-astra',
+    model: document.querySelector('#target-model').value,
     reasoning_effort: document.querySelector('#target-effort').value,
     service_tier: document.querySelector('#target-tier').value,
     interval_minutes: 0,
@@ -273,6 +311,7 @@ document.querySelector('#target-form').addEventListener('submit', async (event) 
 })
 
 document.querySelector('#new-target').addEventListener('click', () => openTarget())
+document.querySelector('#load-models').addEventListener('click', loadModels)
 document.querySelector('#target-close').addEventListener('click', () => document.querySelector('#target-dialog').close())
 document.querySelector('#target-cancel').addEventListener('click', () => document.querySelector('#target-dialog').close())
 document.querySelector('#target-dialog').addEventListener('click', (event) => {

@@ -223,6 +223,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("PUT /api/admin/notifications", a.auth.requireSession(a.updateNotifications))
 	mux.HandleFunc("DELETE /api/admin/notifications", a.auth.requireSession(a.clearNotifications))
 	mux.HandleFunc("POST /api/admin/notifications/test", a.auth.requireSession(a.testNotification))
+	mux.HandleFunc("POST /api/admin/models", a.auth.requireSession(a.listModels))
 	mux.HandleFunc("POST /api/admin/targets", a.auth.requireSession(a.createTarget))
 	mux.HandleFunc("PUT /api/admin/targets/{id}", a.auth.requireSession(a.updateTarget))
 	mux.HandleFunc("DELETE /api/admin/targets/{id}", a.auth.requireSession(a.deleteTarget))
@@ -398,6 +399,26 @@ func (a *App) testNotification(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *App) listModels(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		TargetID string `json:"target_id"`
+		APIKey   string `json:"api_key"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	models, err := a.runner.ListModels(r.Context(), strings.TrimSpace(request.TargetID), request.APIKey)
+	if errors.Is(err, os.ErrNotExist) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "检测目标不存在"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
 func (a *App) createTarget(w http.ResponseWriter, r *http.Request) {

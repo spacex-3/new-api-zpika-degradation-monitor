@@ -5,6 +5,7 @@ An independent degradation-monitoring service for new-api deployments. It schedu
 ## Features
 
 - Standard five-field cron schedules in the Asia/Shanghai time zone
+- Per-target model selection with discovery through the configured upstream API key
 - Up to three attempts for failed checks
 - Encrypted storage for upstream URLs, API keys, and Bark endpoints
 - Public result cards and a 60-entry combined status history
