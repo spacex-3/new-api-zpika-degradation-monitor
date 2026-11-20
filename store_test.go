@@ -24,6 +24,36 @@ func testStore(t *testing.T) *Store {
 	return store
 }
 
+func TestStaticPagesReferenceCurrentAssetContent(t *testing.T) {
+	app := &App{}
+	for _, page := range []struct {
+		name   string
+		script string
+	}{{"index.html", "app.js"}, {"admin.html", "admin.js"}} {
+		t.Run(page.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			app.serveStaticFile(response, httptest.NewRequest(http.MethodGet, "/", nil), page.name)
+			if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("unexpected static page response: status=%d headers=%v", response.Code, response.Header())
+			}
+			body := response.Body.String()
+			for _, asset := range []string{"styles.css", page.script} {
+				content, err := webFiles.ReadFile("web/" + asset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				version := sha256.Sum256(content)
+				if !strings.Contains(body, fmt.Sprintf("/assets/%s?v=%x", asset, version[:8])) {
+					t.Fatalf("page does not reference current %s content", asset)
+				}
+			}
+			if strings.Contains(body, "{{") {
+				t.Fatal("unresolved asset placeholder in rendered page")
+			}
+		})
+	}
+}
+
 func TestStoreEncryptsCredentialsAndPublicStateOmitsThem(t *testing.T) {
 	store := testStore(t)
 	baseURL := "https://private-upstream.example/v1"

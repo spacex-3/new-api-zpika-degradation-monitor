@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -266,9 +268,19 @@ func (a *App) serveStaticFile(w http.ResponseWriter, r *http.Request, name strin
 		http.NotFound(w, r)
 		return
 	}
+	page := string(data)
+	for _, asset := range []string{"styles.css", "app.js", "admin.js"} {
+		content, err := webFiles.ReadFile("web/" + asset)
+		if err != nil {
+			http.Error(w, "static asset unavailable", http.StatusInternalServerError)
+			return
+		}
+		version := sha256.Sum256(content)
+		page = strings.ReplaceAll(page, "{{"+asset+"}}", fmt.Sprintf("/assets/%s?v=%x", asset, version[:8]))
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(data)
+	_, _ = io.WriteString(w, page)
 }
 
 func (a *App) publicResult(w http.ResponseWriter, r *http.Request) {
