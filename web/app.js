@@ -187,6 +187,13 @@ function createResultCard(result) {
   return card
 }
 
+function createResultColumn(results) {
+  const column = document.createElement('section')
+  column.className = 'result-column'
+  column.replaceChildren(...results.map(createResultCard))
+  return column
+}
+
 async function showDetail(summary) {
   const dialog = document.querySelector('#detail-dialog')
   const body = document.querySelector('#detail-body')
@@ -279,15 +286,25 @@ async function showDetail(summary) {
 function render() {
   if (!state.data) return
   const targets = state.data.targets || []
-  const results = (state.data.results || []).filter((item) => state.filter === 'all' || item.target_id === state.filter)
+  const allResults = state.data.results || []
+  const results = allResults.filter((item) => state.filter === 'all' || item.target_id === state.filter)
   renderFilters(targets)
   renderTargets(targets)
   renderHistory(state.data.history || [])
   const grid = document.querySelector('#results')
-  grid.replaceChildren(...results.map(createResultCard))
+  if (state.filter === 'all') {
+    const grouped = new Map(targets.map((target) => [target.id, []]))
+    for (const result of results) {
+      if (!grouped.has(result.target_id)) grouped.set(result.target_id, [])
+      grouped.get(result.target_id).push(result)
+    }
+    grid.replaceChildren(...[...grouped.values()].map(createResultColumn))
+  } else {
+    grid.replaceChildren(...results.map(createResultCard))
+  }
   document.querySelector('#empty').hidden = results.length > 0
   const running = targets.filter((item) => item.running).length
-  document.querySelector('#summary').textContent = running > 0 ? `${running} 个分组正在检测` : `${targets.length} 个分组 · ${(state.data.results || []).length} 条记录`
+  document.querySelector('#summary').textContent = running > 0 ? `${running} 个分组正在检测` : `${targets.length} 个分组 · ${allResults.length} 条记录`
 }
 
 async function load() {

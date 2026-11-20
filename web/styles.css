@@ -223,8 +223,8 @@ main { width: min(1460px, 100%); margin: 0 auto; padding: 24px clamp(16px, 4vw, 
 
 .target-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 20px;
 }
 .target-chip {
@@ -257,6 +257,12 @@ main { width: min(1460px, 100%); margin: 0 auto; padding: 24px clamp(16px, 4vw, 
 .result-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.result-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 .result-card {
@@ -375,7 +381,8 @@ input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px 
 .admin-target-name strong { display: block; font-size: 14px; }
 .admin-target-name span, .admin-target-stat span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 .admin-target-stat strong { font-size: 13px; }
-.admin-target-actions { display: flex; gap: 7px; justify-content: flex-end; }
+.admin-target-actions { display: flex; gap: 7px; justify-content: flex-end; flex-wrap: wrap; }
+.order-button { width: 34px; min-width: 34px; padding-inline: 0; font-size: 16px; }
 .failure-list { display: flex; flex-direction: column; gap: 8px; }
 .failure-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); }
 .failure-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
@@ -463,7 +470,7 @@ dialog::backdrop { background: rgba(5, 10, 12, .62); backdrop-filter: blur(2px);
   .topbar { flex-wrap: wrap; }
   .history-monitor { order: 3; width: 100%; grid-template-columns: auto minmax(160px, 1fr); }
   .history-legend { display: none; }
-  .result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .target-strip, .result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .notification-form { grid-template-columns: 1fr 1fr; }
   .notification-actions { grid-column: 1 / -1; }
   .admin-target { grid-template-columns: 1fr 1fr; }

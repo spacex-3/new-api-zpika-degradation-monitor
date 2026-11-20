@@ -99,12 +99,19 @@ function actionButton(label, className, handler, disabled = false) {
   return button
 }
 
+function orderButton(label, title, handler, disabled) {
+  const button = actionButton(label, 'button secondary order-button', handler, disabled)
+  button.title = title
+  button.setAttribute('aria-label', title)
+  return button
+}
+
 function renderTargets() {
   const list = document.querySelector('#target-list')
   list.replaceChildren()
   const targets = adminState.data?.targets || []
   document.querySelector('#admin-empty').hidden = targets.length > 0
-  for (const target of targets) {
+  targets.forEach((target, index) => {
     const row = document.createElement('article')
     row.className = 'admin-target'
     const name = document.createElement('div')
@@ -120,13 +127,15 @@ function renderTargets() {
     const actions = document.createElement('div')
     actions.className = 'admin-target-actions'
     actions.append(
+      orderButton('↑', '上移分组', () => moveTarget(target.id, -1), index === 0),
+      orderButton('↓', '下移分组', () => moveTarget(target.id, 1), index === targets.length - 1),
       actionButton('立即检测', 'button secondary', () => runTarget(target.id), target.running),
       actionButton('编辑', 'button secondary', () => openTarget(target)),
       actionButton('删除', 'button danger', () => deleteTarget(target), target.running),
     )
     row.append(name, schedule, retention, next, actions)
     list.append(row)
-  }
+  })
 }
 
 function stat(value, label) {
@@ -201,6 +210,15 @@ async function runTarget(id) {
   try {
     await request(`/api/admin/targets/${encodeURIComponent(id)}/run`, { method: 'POST' })
     toast('检测任务已开始')
+    await loadState()
+  } catch (error) { toast(error.message) }
+}
+
+async function moveTarget(id, offset) {
+  try {
+    await request(`/api/admin/targets/${encodeURIComponent(id)}/move`, {
+      method: 'POST', body: JSON.stringify({ offset }),
+    })
     await loadState()
   } catch (error) { toast(error.message) }
 }

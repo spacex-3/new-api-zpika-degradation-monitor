@@ -227,6 +227,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/targets", a.auth.requireSession(a.createTarget))
 	mux.HandleFunc("PUT /api/admin/targets/{id}", a.auth.requireSession(a.updateTarget))
 	mux.HandleFunc("DELETE /api/admin/targets/{id}", a.auth.requireSession(a.deleteTarget))
+	mux.HandleFunc("POST /api/admin/targets/{id}/move", a.auth.requireSession(a.moveTarget))
 	mux.HandleFunc("POST /api/admin/targets/{id}/run", a.auth.requireSession(a.runTarget))
 	mux.HandleFunc("GET /admin", a.serveAdmin)
 	mux.HandleFunc("GET /embed", a.serveEmbed)
@@ -465,6 +466,25 @@ func (a *App) deleteTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "删除失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *App) moveTarget(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Offset int `json:"offset"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	err := a.store.MoveTarget(r.PathValue("id"), request.Offset)
+	if errors.Is(err, os.ErrNotExist) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "检测目标不存在"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

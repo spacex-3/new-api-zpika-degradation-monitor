@@ -33,6 +33,7 @@ type Settings struct {
 type Target struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
+	DisplayOrder     int       `json:"display_order,omitempty"`
 	Benchmark        string    `json:"benchmark"`
 	Model            string    `json:"model"`
 	ReasoningEffort  string    `json:"reasoning_effort"`
@@ -161,6 +162,9 @@ func NewStore(dataDir string, key []byte) (*Store, error) {
 		return nil, fmt.Errorf("unsupported state version %d", store.state.Version)
 	}
 	migrated := false
+	if normalizeTargetDisplayOrder(store.state.Targets) {
+		migrated = true
+	}
 	now := time.Now().UTC()
 	for i := range store.state.Targets {
 		if store.state.Targets[i].CronExpression != "" {
@@ -207,6 +211,61 @@ func NewStore(dataDir string, key []byte) (*Store, error) {
 		}
 	}
 	return store, nil
+}
+
+var defaultTargetDisplayOrder = map[string]int{
+	"gpt-官key":    1,
+	"codex-满血不降智": 2,
+	"codex-不降智":   3,
+	"codex-特惠":    4,
+}
+
+func normalizeTargetDisplayOrder(targets []Target) bool {
+	if len(targets) == 0 {
+		return false
+	}
+	originalIDs := make([]string, len(targets))
+	allUnset := true
+	for i, target := range targets {
+		originalIDs[i] = target.ID
+		if target.DisplayOrder > 0 {
+			allUnset = false
+		}
+	}
+	slices.SortStableFunc(targets, func(left, right Target) int {
+		if allUnset {
+			leftOrder, leftKnown := defaultTargetDisplayOrder[left.Name]
+			rightOrder, rightKnown := defaultTargetDisplayOrder[right.Name]
+			switch {
+			case leftKnown && rightKnown:
+				return leftOrder - rightOrder
+			case leftKnown:
+				return -1
+			case rightKnown:
+				return 1
+			default:
+				return 0
+			}
+		}
+		switch {
+		case left.DisplayOrder > 0 && right.DisplayOrder > 0:
+			return left.DisplayOrder - right.DisplayOrder
+		case left.DisplayOrder > 0:
+			return -1
+		case right.DisplayOrder > 0:
+			return 1
+		default:
+			return 0
+		}
+	})
+	changed := false
+	for i := range targets {
+		if originalIDs[i] != targets[i].ID || targets[i].DisplayOrder != i+1 {
+			changed = true
+		}
+		targets[i].DisplayOrder = i + 1
+	}
+	return changed
 }
 
 func historyEntry(result Result) HistoryEntry {
@@ -527,11 +586,42 @@ func (s *Store) AddTarget(input TargetInput) (Target, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	target.DisplayOrder = len(s.state.Targets) + 1
 	s.state.Targets = append(s.state.Targets, target)
 	if err := s.persistLocked(); err != nil {
 		return Target{}, err
 	}
 	return target, nil
+}
+
+func (s *Store) MoveTarget(id string, offset int) error {
+	if offset != -1 && offset != 1 {
+		return errors.New("分组移动方向无效")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := -1
+	for i, target := range s.state.Targets {
+		if target.ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return os.ErrNotExist
+	}
+	destination := index + offset
+	if destination < 0 || destination >= len(s.state.Targets) {
+		return nil
+	}
+	s.state.Targets[index], s.state.Targets[destination] = s.state.Targets[destination], s.state.Targets[index]
+	now := time.Now().UTC()
+	for i := range s.state.Targets {
+		s.state.Targets[i].DisplayOrder = i + 1
+	}
+	s.state.Targets[index].UpdatedAt = now
+	s.state.Targets[destination].UpdatedAt = now
+	return s.persistLocked()
 }
 
 func (s *Store) UpdateTarget(id string, input TargetInput) (Target, error) {
@@ -627,7 +717,8 @@ func (s *Store) AdminState(running map[string]bool) map[string]any {
 	for _, target := range s.state.Targets {
 		targets = append(targets, map[string]any{
 			"id": target.ID, "name": target.Name, "benchmark": target.Benchmark,
-			"model": target.Model, "reasoning_effort": target.ReasoningEffort,
+			"display_order": target.DisplayOrder,
+			"model":         target.Model, "reasoning_effort": target.ReasoningEffort,
 			"service_tier": target.ServiceTier, "interval_minutes": target.IntervalMinutes,
 			"cron_expression": target.CronExpression,
 			"retain_count":    target.RetainCount, "enabled": target.Enabled,

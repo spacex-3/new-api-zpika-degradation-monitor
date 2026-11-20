@@ -97,6 +97,53 @@ func TestHiddenTargetIsExcludedFromEveryPublicEndpoint(t *testing.T) {
 	}
 }
 
+func TestLegacyTargetsUseDefaultDisplayOrderAndCanBeMoved(t *testing.T) {
+	dataDir := t.TempDir()
+	key := bytes.Repeat([]byte{0x2a}, 32)
+	store, err := NewStore(dataDir, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.state.Targets = []Target{
+		{ID: "discount", Name: "codex-特惠", Enabled: true},
+		{ID: "normal", Name: "codex-不降智", Enabled: true},
+		{ID: "official", Name: "gpt-官key", Enabled: true},
+		{ID: "full", Name: "codex-满血不降智", Enabled: true},
+	}
+	if err := store.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = NewStore(dataDir, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"official", "full", "normal", "discount"}
+	for i, target := range store.state.Targets {
+		if target.ID != want[i] || target.DisplayOrder != i+1 {
+			t.Fatalf("target %d = %#v, want id %q at order %d", i, target, want[i], i+1)
+		}
+	}
+	if err := store.MoveTarget("normal", -1); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"official", "normal", "full", "discount"}
+	publicTargets := store.PublicState(nil)["targets"].([]map[string]any)
+	for i, target := range publicTargets {
+		if target["id"] != want[i] {
+			t.Fatalf("public target %d = %#v, want id %q", i, target, want[i])
+		}
+	}
+	reloaded, err := NewStore(dataDir, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, target := range reloaded.state.Targets {
+		if target.ID != want[i] || target.DisplayOrder != i+1 {
+			t.Fatalf("reloaded target %d = %#v, want id %q at order %d", i, target, want[i], i+1)
+		}
+	}
+}
+
 func TestEmbedSecurityHeadersAllowOnlyConfiguredParents(t *testing.T) {
 	origins, err := parseEmbedParentOrigins("https://api.example.com, https://vip.example.com")
 	if err != nil {
