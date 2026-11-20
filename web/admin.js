@@ -44,6 +44,7 @@ async function bootstrap() {
     adminState.csrf = session.csrf_token
     setAuthenticated(true)
     await loadState()
+    await loadRemediation()
   } catch {
     setAuthenticated(false)
   }
@@ -54,6 +55,7 @@ async function loadState() {
     adminState.data = await request('/api/admin/state')
     renderTargets()
     renderFailures()
+    renderRemediations()
     const status = document.querySelector('#base-url-status')
     status.textContent = adminState.data.base_url_configured ? '已加密保存。重新填写可替换当前地址。' : '尚未配置。'
     const barkStatus = document.querySelector('#bark-status')
@@ -88,6 +90,68 @@ function renderFailures() {
     list.append(item)
   }
 }
+
+async function loadRemediation() {
+  const data = await request('/api/admin/remediation')
+  document.querySelector('#remediation-enabled').checked = data.enabled
+  document.querySelector('#remediation-full-token').value = data.full_token_name
+  document.querySelector('#remediation-normal-token').value = data.normal_token_name
+  document.querySelector('#remediation-new-user-id').value = data.new_user_id || ''
+  document.querySelector('#remediation-status').textContent = `${data.enabled ? '已开启' : '已关闭'}。仅处理两个指定分组中经过 #23 sub2api_pro 的请求；${data.configured ? '管理凭据已加密保存。' : '请先填写并保存管理凭据。'}`
+}
+
+function renderRemediations() {
+  const list = document.querySelector('#remediation-list')
+  list.replaceChildren()
+  for (const event of (adminState.data?.remediations || []).slice(0, 20)) {
+    const item = document.createElement('article')
+    item.className = 'failure-item'
+    const heading = document.createElement('strong')
+    heading.textContent = `${event.target_name} · ${formatDate(event.updated_at)}${event.account_id ? ` · 账号 #${event.account_id}` : ''}`
+    const text = document.createElement('p')
+    text.textContent = event.message
+    const meta = document.createElement('small')
+    meta.textContent = `检测 ${event.result_id} · newapi 日志 ${event.log_id || '未匹配'} · sub2api 记录 ${event.usage_id || '未匹配'}${event.recheck_id ? ` · 复检 ${event.recheck_id}` : ''}`
+    item.append(heading, text, meta)
+    list.append(item)
+  }
+}
+
+document.querySelector('#remediation-form').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const feedback = document.querySelector('#remediation-feedback')
+  const payload = {
+    enabled: document.querySelector('#remediation-enabled').checked,
+    sub_url: document.querySelector('#remediation-sub-url').value,
+    sub_email: document.querySelector('#remediation-sub-email').value,
+    sub_password: document.querySelector('#remediation-sub-password').value,
+    new_url: document.querySelector('#remediation-new-url').value,
+    new_token: document.querySelector('#remediation-new-token').value,
+    new_user_id: Number(document.querySelector('#remediation-new-user-id').value),
+    full_token_name: document.querySelector('#remediation-full-token').value,
+    normal_token_name: document.querySelector('#remediation-normal-token').value,
+    admin_token: document.querySelector('#remediation-admin-token').value,
+  }
+  try {
+    await request('/api/admin/remediation', { method: 'PUT', body: JSON.stringify(payload) })
+    for (const field of ['sub-url', 'sub-email', 'sub-password', 'new-url', 'new-token']) document.querySelector(`#remediation-${field}`).value = ''
+    feedback.textContent = '设置已加密保存。可测试管理连接；测试不会迁移账号或启动检测。'
+    await loadRemediation()
+  } catch (error) { feedback.textContent = error.message }
+  finally { document.querySelector('#remediation-admin-token').value = '' }
+})
+
+document.querySelector('#test-remediation').addEventListener('click', async () => {
+  const button = document.querySelector('#test-remediation')
+  button.disabled = true
+  const feedback = document.querySelector('#remediation-feedback')
+  feedback.textContent = '正在检查已保存的管理配置…'
+  try {
+    const data = await request('/api/admin/remediation/test', { method: 'POST' })
+    feedback.textContent = data.message
+  } catch (error) { feedback.textContent = error.message }
+  finally { button.disabled = false }
+})
 
 function actionButton(label, className, handler, disabled = false) {
   const button = document.createElement('button')
@@ -244,6 +308,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
     document.querySelector('#admin-token').value = ''
     setAuthenticated(true)
     await loadState()
+    await loadRemediation()
   } catch (error) { errorElement.textContent = error.message }
 })
 

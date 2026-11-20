@@ -11,6 +11,7 @@ An independent degradation-monitoring service for new-api deployments. It schedu
 - Public result cards and a 60-entry combined status history
 - Administrator-only failure details and Bark test notifications
 - Explicit CSP allowlist for embedding the public page and result artifacts
+- Optional account quarantine through sub2api, with a single group recheck and team account counts in the final Bark alert
 
 ## Container image
 
@@ -42,6 +43,22 @@ The service reads secrets from files mounted by Compose:
 - `bootstrap-base-url`: an optional initial new-api-compatible Base URL
 
 Create these files locally with restrictive permissions. Keep the original encryption key with the data directory; changing it makes stored credentials unreadable.
+
+## Automatic account quarantine
+
+The administrator console can store separate HTTPS root URLs and administrator credentials for new-api and sub2api. All connection details are AES-GCM encrypted at rest and never returned to the browser. Saving this configuration requires the monitor administrator token again, in addition to the session and CSRF checks. Empty connection fields retain saved values. The feature is disabled until explicitly enabled.
+
+Only degraded, suspicious or incorrect results for `codex-满血不降智` and `codex-不降智` are eligible. Give each target a dedicated new-api key and configure its exact token name (defaults: `鹈鹕-满血` and `鹈鹕-不降智`). The monitor requires a unique successful new-api log matching group, token name, model, completion time (within 30 seconds) and input/output tokens. The actual channel must be both ID `23` and name `sub2api_pro`.
+
+Next, it requires one matching sub2api usage record in the OpenAI `team` group, using model, completion time and tokens including cached input. Both source `team` and destination `降智` groups must resolve uniquely. Incomplete, overlapping or excessive log pagination stops the operation. Missing or ambiguous matches never trigger account writes.
+
+The account must still belong to team and must not already belong to 降智. Only its group memberships are updated: unrelated memberships are preserved. A persisted intent precedes the write, and a fresh read verifies the complete resulting membership set. A failed write is never retried automatically; if verification is uncertain, that account is blocked from further automatic migration until an administrator investigates. The audit survives restarts. Do not run multiple monitor instances against the same state directory. Sub2api's update API has no conditional-write transaction with manual administrator changes, so avoid editing the same account's memberships during automatic handling.
+
+After a confirmed migration, the target runs one recheck (with the existing maximum three request attempts), without changing its cron schedule or recursively quarantining more accounts. The original alert is followed by one final processing alert, including skipped/failed outcomes. A normal recheck means that the **group** passed; routing may have selected another channel. Completed history is bounded to 100 events; unresolved migrations are retained for manual review. Only administrators can read these audit events.
+
+Final Bark messages include current team counts: available, rate limited and total. Error, disabled, expired, overloaded or temporarily unschedulable accounts are counted as other unavailable when applicable. A statistics API failure is reported explicitly instead of showing zero. “Test management connection and team statistics” uses saved settings and only reads management data; it does not migrate accounts or start paid detections.
+
+Security references used for this integration: OWASP ASVS **5.0.0** (3.5.1 CSRF, 11.3.3 authenticated encryption, 12.3.1–12.3.2 encrypted service connections and certificate validation, 16.2.5 credential-free audit data), Authentication Cheat Sheet and Session Management Cheat Sheet. External credentials stay server-side; redirects are rejected. This is a focused control review, not a full application ASVS certification.
 
 ## Development
 

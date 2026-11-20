@@ -19,14 +19,15 @@ import (
 )
 
 type Runner struct {
-	store        *Store
-	client       *http.Client
-	manxueBase   string
-	pollInterval time.Duration
-	retryDelay   time.Duration
-	maxAttempts  int
-	mu           sync.Mutex
-	running      map[string]bool
+	store         *Store
+	client        *http.Client
+	manxueBase    string
+	pollInterval  time.Duration
+	retryDelay    time.Duration
+	maxAttempts   int
+	mu            sync.Mutex
+	running       map[string]bool
+	remediationMu sync.Mutex
 }
 
 type testCreateResponse struct {
@@ -191,13 +192,23 @@ func (r *Runner) ListModels(ctx context.Context, targetID, suppliedKey string) (
 }
 
 func (r *Runner) run(ctx context.Context, targetID string) error {
+	result, err := r.runDetection(ctx, targetID, true, true)
+	if err == nil {
+		r.remediate(ctx, result)
+	}
+	return err
+}
+
+func (r *Runner) runDetection(ctx context.Context, targetID string, schedule, notify bool) (Result, error) {
 	target, baseURL, apiKey, err := r.store.TargetSecrets(targetID)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	started := time.Now().UTC()
-	if err := r.store.ScheduleNext(targetID, started); err != nil {
-		return err
+	if schedule {
+		if err := r.store.ScheduleNext(targetID, started); err != nil {
+			return Result{}, err
+		}
 	}
 	result := Result{
 		TargetID: target.ID, TargetName: target.Name,
@@ -209,17 +220,21 @@ func (r *Runner) run(ctx context.Context, targetID string) error {
 	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
 		resultID, idErr := randomID("result_")
 		if idErr != nil {
-			return idErr
+			return Result{}, idErr
 		}
 		result.ID = resultID
+		result.StartedAt = time.Now().UTC()
 		response, attemptErr := r.runAttempt(ctx, target, baseURL, apiKey, resultID)
 		if attemptErr == nil && response.Status == "succeeded" {
 			result.AttemptCount = attempt
 			if err := r.finishResult(result, response); err != nil {
-				return err
+				return Result{}, err
 			}
-			r.notifyResult(result, response)
-			return nil
+			result, _ = r.store.Result(result.ID)
+			if notify {
+				r.notifyResult(result, response)
+			}
+			return result, nil
 		}
 		if attemptErr != nil {
 			failureDetail = sanitizeFailureDetail(attemptErr.Error(), baseURL, apiKey)
@@ -232,19 +247,23 @@ func (r *Runner) run(ctx context.Context, targetID string) error {
 		if attempt < r.maxAttempts {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return Result{}, ctx.Err()
 			case <-time.After(r.retryDelay):
 			}
 		}
 	}
 	result.AttemptCount = r.maxAttempts
+	result.StartedAt = started
 	if err := r.finishFailure(result, "请求失败", failureDetail); err != nil {
-		return err
+		return Result{}, err
 	}
-	if err := r.notify("连续 3 次请求失败", target.Name+"：连续 3 次请求均失败，请登录后台查看原因"); err != nil {
-		slog.Warn("bark notification failed", "error", err)
+	if notify {
+		if err := r.notify("连续 3 次请求失败", target.Name+"：连续 3 次请求均失败，请登录后台查看原因"); err != nil {
+			slog.Warn("bark notification failed", "error", err)
+		}
 	}
-	return errors.New(failureDetail)
+	result, _ = r.store.Result(result.ID)
+	return result, errors.New(failureDetail)
 }
 
 func (r *Runner) runAttempt(ctx context.Context, target Target, baseURL, apiKey, resultID string) (testResponse, error) {
@@ -373,6 +392,8 @@ func parseTime(value string, fallback time.Time) time.Time {
 
 func (r *Runner) finishResult(result Result, response testResponse) error {
 	result.FinishedAt = time.Now().UTC()
+	result.StartedAt = parseTime(response.StartedAt, result.StartedAt)
+	result.FinishedAt = parseTime(response.FinishedAt, result.FinishedAt)
 	result.Status = response.Status
 	if result.Status == "" {
 		result.Status = "failed"

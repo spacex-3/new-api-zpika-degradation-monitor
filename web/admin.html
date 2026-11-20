@@ -83,6 +83,34 @@
         </section>
 
         <section class="panel">
+          <div class="panel-heading">
+            <h2>降智账号自动处理</h2>
+            <p id="remediation-status">默认关闭。仅处理 codex-满血不降智、codex-不降智中实际经过 #23 sub2api_pro 的请求。</p>
+          </div>
+          <form id="remediation-form">
+            <div class="form-grid">
+              <label class="switch-row wide"><input id="remediation-enabled" type="checkbox" /><span>启用：唯一匹配 team 账号后移至降智分组，并复检一次</span></label>
+              <label class="field"><span>sub2api 站点根地址</span><input id="remediation-sub-url" type="url" placeholder="https://example.com" autocomplete="off" /></label>
+              <label class="field"><span>sub2api 管理员邮箱</span><input id="remediation-sub-email" type="email" autocomplete="off" /></label>
+              <label class="field"><span>sub2api 管理员密码</span><input id="remediation-sub-password" type="password" autocomplete="new-password" /></label>
+              <label class="field"><span>主站 newapi 根地址</span><input id="remediation-new-url" type="url" placeholder="https://example.com" autocomplete="off" /></label>
+              <label class="field"><span>newapi 管理令牌</span><input id="remediation-new-token" type="password" autocomplete="new-password" /></label>
+              <label class="field"><span>newapi 管理员用户 ID</span><input id="remediation-new-user-id" type="number" min="1" /></label>
+              <label class="field"><span>满血分组的专用令牌名称</span><input id="remediation-full-token" value="鹈鹕-满血" maxlength="100" required /></label>
+              <label class="field"><span>不降智分组的专用令牌名称</span><input id="remediation-normal-token" value="鹈鹕-不降智" maxlength="100" required /></label>
+              <label class="field wide"><span>检测后台管理员口令（保存时验证）</span><input id="remediation-admin-token" type="password" autocomplete="current-password" required /><small>地址、邮箱、密码和令牌均加密保存且不回显，留空保留已有值。请使用分组专用检测 Key；匹配不唯一、账号已移出 team 时不会迁移。</small></label>
+            </div>
+            <div class="notification-actions">
+              <button class="button primary" type="submit">保存自动处理设置</button>
+              <button id="test-remediation" class="button secondary" type="button">测试管理连接与 team 统计</button>
+            </div>
+            <p id="remediation-feedback" role="status"></p>
+          </form>
+          <div class="panel-heading"><h3>最近自动处理记录</h3><p>仅管理员可见。未确认的迁移不会自动重试，请人工核对账号分组。</p></div>
+          <div id="remediation-list" class="failure-list"></div>
+        </section>
+
+        <section class="panel">
           <div class="panel-heading split-heading">
             <div>
               <h2>检测分组</h2>

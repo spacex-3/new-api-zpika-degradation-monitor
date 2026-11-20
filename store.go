@@ -23,11 +23,12 @@ import (
 const stateVersion = 1
 
 type Settings struct {
-	EncryptedBaseURL  string `json:"encrypted_base_url,omitempty"`
-	BaseURLConfigured bool   `json:"base_url_configured"`
-	EncryptedBarkURL  string `json:"encrypted_bark_url,omitempty"`
-	BarkConfigured    bool   `json:"bark_configured"`
-	NotifyAll         bool   `json:"notify_all,omitempty"`
+	EncryptedRemediation string `json:"encrypted_remediation,omitempty"`
+	EncryptedBaseURL     string `json:"encrypted_base_url,omitempty"`
+	BaseURLConfigured    bool   `json:"base_url_configured"`
+	EncryptedBarkURL     string `json:"encrypted_bark_url,omitempty"`
+	BarkConfigured       bool   `json:"bark_configured"`
+	NotifyAll            bool   `json:"notify_all,omitempty"`
 }
 
 type Target struct {
@@ -77,11 +78,12 @@ type Result struct {
 }
 
 type persistedState struct {
-	Version  int            `json:"version"`
-	Settings Settings       `json:"settings"`
-	Targets  []Target       `json:"targets"`
-	Results  []Result       `json:"results"`
-	History  []HistoryEntry `json:"history,omitempty"`
+	Remediations []RemediationEvent `json:"remediations,omitempty"`
+	Version      int                `json:"version"`
+	Settings     Settings           `json:"settings"`
+	Targets      []Target           `json:"targets"`
+	Results      []Result           `json:"results"`
+	History      []HistoryEntry     `json:"history,omitempty"`
 }
 
 type HistoryEntry struct {
@@ -746,11 +748,13 @@ func (s *Store) AdminState(running map[string]bool) map[string]any {
 		}
 	}
 	return map[string]any{
-		"base_url_configured": s.state.Settings.BaseURLConfigured,
-		"bark_configured":     s.state.Settings.BarkConfigured,
-		"notify_all":          s.state.Settings.NotifyAll,
-		"targets":             targets,
-		"failures":            failures,
+		"base_url_configured":    s.state.Settings.BaseURLConfigured,
+		"bark_configured":        s.state.Settings.BarkConfigured,
+		"notify_all":             s.state.Settings.NotifyAll,
+		"targets":                targets,
+		"failures":               failures,
+		"remediation_configured": s.state.Settings.EncryptedRemediation != "",
+		"remediations":           slices.Clone(s.state.Remediations),
 	}
 }
 
