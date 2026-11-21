@@ -4,7 +4,7 @@ const autoRefreshDuration = 10 * 60 * 1000
 const benchmarkLabels = { pelican: '鹈鹕骑行', candy: '糖果测试', creative: '自由创作' }
 
 function formatDate(value) {
-  if (!value) return '尚未运行'
+  if (!value || value.startsWith('0001-')) return '尚未运行'
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   }).format(new Date(value))
@@ -45,6 +45,7 @@ async function bootstrap() {
     setAuthenticated(true)
     await loadState()
     await loadRemediation()
+    loadSubReportForm()
   } catch {
     setAuthenticated(false)
   }
@@ -56,6 +57,7 @@ async function loadState() {
     renderTargets()
     renderFailures()
     renderRemediations()
+    renderSubReportStatus()
     const status = document.querySelector('#base-url-status')
     status.textContent = adminState.data.base_url_configured ? '已加密保存。重新填写可替换当前地址。' : '尚未配置。'
     const barkStatus = document.querySelector('#bark-status')
@@ -116,6 +118,50 @@ function renderRemediations() {
     list.append(item)
   }
 }
+
+function loadSubReportForm() {
+  const config = adminState.data?.sub_report
+  if (!config) return
+  document.querySelector('#sub-report-enabled').checked = config.enabled
+  document.querySelector('#sub-report-cron').value = config.cron_expression
+  document.querySelector('#sub-report-team').value = config.team_minimum
+  document.querySelector('#sub-report-degraded').value = config.degraded_minimum
+}
+
+function renderSubReportStatus() {
+  const config = adminState.data?.sub_report
+  if (!config) return
+  document.querySelector('#sub-report-schedule').textContent = `${config.enabled ? `已启用 · 下次报送 ${formatDate(config.next_run_at)}` : '定时报送已关闭'} · 最近发送 ${formatDate(config.last_sent_at)}`
+  document.querySelector('#sub-report-last').textContent = config.last_error || config.last_message || '尚未发送状态通知。'
+}
+
+document.querySelector('#sub-report-form').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const feedback = document.querySelector('#sub-report-feedback')
+  try {
+    await request('/api/admin/sub-report', { method: 'PUT', body: JSON.stringify({
+      enabled: document.querySelector('#sub-report-enabled').checked,
+      cron_expression: document.querySelector('#sub-report-cron').value,
+      team_minimum: Number(document.querySelector('#sub-report-team').value),
+      degraded_minimum: Number(document.querySelector('#sub-report-degraded').value),
+    }) })
+    feedback.textContent = '报送计划已保存。'
+    await loadState()
+  } catch (error) { feedback.textContent = error.message }
+})
+
+document.querySelector('#test-sub-report').addEventListener('click', async () => {
+  const button = document.querySelector('#test-sub-report')
+  const feedback = document.querySelector('#sub-report-feedback')
+  button.disabled = true
+  feedback.textContent = '正在读取分组状态并发送通知…'
+  try {
+    await request('/api/admin/sub-report/test', { method: 'POST' })
+    feedback.textContent = '状态通知已发送，使用的是已保存的提醒阈值。'
+    await loadState()
+  } catch (error) { feedback.textContent = error.message }
+  finally { button.disabled = false }
+})
 
 document.querySelector('#remediation-form').addEventListener('submit', async (event) => {
   event.preventDefault()
@@ -309,6 +355,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
     setAuthenticated(true)
     await loadState()
     await loadRemediation()
+    loadSubReportForm()
   } catch (error) { errorElement.textContent = error.message }
 })
 

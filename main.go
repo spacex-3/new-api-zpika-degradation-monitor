@@ -229,6 +229,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/admin/remediation", a.auth.requireSession(a.remediationStatus))
 	mux.HandleFunc("PUT /api/admin/remediation", a.auth.requireSession(a.updateRemediation))
 	mux.HandleFunc("POST /api/admin/remediation/test", a.auth.requireSession(a.testRemediation))
+	mux.HandleFunc("PUT /api/admin/sub-report", a.auth.requireSession(a.updateSubReport))
+	mux.HandleFunc("POST /api/admin/sub-report/test", a.auth.requireSession(a.testSubReport))
 	mux.HandleFunc("POST /api/admin/targets", a.auth.requireSession(a.createTarget))
 	mux.HandleFunc("PUT /api/admin/targets/{id}", a.auth.requireSession(a.updateTarget))
 	mux.HandleFunc("DELETE /api/admin/targets/{id}", a.auth.requireSession(a.deleteTarget))

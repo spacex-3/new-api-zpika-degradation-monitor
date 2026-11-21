@@ -28,6 +28,7 @@ type Runner struct {
 	mu            sync.Mutex
 	running       map[string]bool
 	remediationMu sync.Mutex
+	reportMu      sync.Mutex
 }
 
 type testCreateResponse struct {
@@ -130,6 +131,7 @@ func (r *Runner) StartScheduler(ctx context.Context) {
 		defer ticker.Stop()
 		for {
 			r.scheduleDue()
+			r.scheduleSubReport(ctx)
 			select {
 			case <-ctx.Done():
 				return
@@ -478,12 +480,16 @@ func (r *Runner) TestNotification() error {
 }
 
 func (r *Runner) notify(title, body string) error {
+	return r.notifyContext(context.Background(), title, body)
+}
+
+func (r *Runner) notifyContext(ctx context.Context, title, body string) error {
 	barkURL, ok := r.store.BarkURL()
 	if !ok {
 		return errors.New("尚未配置 Bark 地址")
 	}
 	endpoint := strings.TrimRight(barkURL, "/") + "/" + url.PathEscape(title) + "/" + url.PathEscape(sanitizeFailureDetail(body))
-	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return errors.New("Bark 地址无效")
 	}

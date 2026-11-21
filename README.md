@@ -60,6 +60,14 @@ Final Bark messages include current team counts: available, rate limited and tot
 
 Security references used for this integration: OWASP ASVS **5.0.0** (3.5.1 CSRF, 11.3.3 authenticated encryption, 12.3.1–12.3.2 encrypted service connections and certificate validation, 16.2.5 credential-free audit data), Authentication Cheat Sheet and Session Management Cheat Sheet. External credentials stay server-side; redirects are rejected. This is a focused control review, not a full application ASVS certification.
 
+## Scheduled sub2api status reports
+
+The administrator console provides a separate report switch, five-field cron expression, low-account thresholds, next scheduled time and last delivery result. The default cron is `0 8-22/2 * * *` in Asia/Shanghai: daily at 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00 and 22:00. Enable reporting after saving the existing sub2api credentials and Bark endpoint. Automatic quarantine can remain disabled independently.
+
+Each report reads the OpenAI groups named exactly `team`, `降智` and `free`, and sends one Bark with available, rate-limited and total account counts. Other unavailable accounts are shown separately. By default, team available **below 5** or 降智 available **below 1** produces a prominent title and a warning before the counts. Thresholds are editable; 0 disables that group's low-account warning. Free has no low-account threshold. Missing/ambiguous groups or failed reads are reported as unknown, never zero, while other groups are still included.
+
+“Send status notification now” uses the saved thresholds and does not change the recurring schedule, migrate accounts, or run paid checks. Scheduled slots are persisted before delivery to prevent duplicates after restarts. Missed slots older than one minute are skipped, so restarting at night does not replay daytime reports. An uncertain Bark response is not automatically retried; inspect the last delivery result and use the manual button if needed. Reports use the existing Bark endpoint independently of the detection result notification scope.
+
 ## Development
 
 ```bash

@@ -385,7 +385,11 @@ func (c *remediationClient) account(ctx context.Context, id int64) (subAccount, 
 type teamStats struct{ Available, RateLimited, Other, Total int }
 
 func (s teamStats) String() string {
-	text := fmt.Sprintf("team分组：可用:%d个账号，限流:%d个账号，总量:%d个账号", s.Available, s.RateLimited, s.Total)
+	return s.groupSummary("team")
+}
+
+func (s teamStats) groupSummary(name string) string {
+	text := fmt.Sprintf("%s分组：可用:%d个账号，限流:%d个账号，总量:%d个账号", name, s.Available, s.RateLimited, s.Total)
 	if s.Other > 0 {
 		text += fmt.Sprintf("，其他不可用:%d个账号", s.Other)
 	}

@@ -417,3 +417,329 @@ func TestTeamStatsDoesNotFabricateZeros(t *testing.T) {
 		server.Close()
 	}
 }
+
+func TestSubReportScheduleAndPersistence(t *testing.T) {
+	store := testStore(t)
+	defaults := store.SubReport()
+	if defaults.Enabled || defaults.CronExpression != "0 8-22/2 * * *" || defaults.TeamMinimum != 5 || defaults.DegradedMinimum != 1 {
+		t.Fatalf("unexpected defaults: %+v", defaults)
+	}
+	// Asia/Shanghai, including weekends, without affecting target schedules.
+	for _, day := range []string{"2026-11-20", "2026-11-21"} {
+		now, _ := time.Parse(time.RFC3339, day+"T07:59:00+08:00")
+		for _, hour := range []int{8, 10, 12, 14, 16, 18, 20, 22} {
+			next, err := nextCronRun(defaultSubReportCron, now)
+			if err != nil || next.In(time.FixedZone("Asia/Shanghai", 8*3600)).Hour() != hour {
+				t.Fatalf("cron hour mismatch: %s %v", next, err)
+			}
+			now = next
+		}
+		next, err := nextCronRun(defaultSubReportCron, now)
+		if err != nil || next.Sub(now) != 10*time.Hour {
+			t.Fatalf("nighttime reports scheduled: %s %v", next, err)
+		}
+	}
+	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+	input := SubReportInput{Enabled: true, CronExpression: defaultSubReportCron, TeamMinimum: 5, DegradedMinimum: 1}
+	if err := store.SetSubReport(input, now); err == nil {
+		t.Fatal("enabled without credentials")
+	}
+	if err := store.SetRemediationConfig(RemediationConfig{SubURL: "https://sub.example", SubEmail: "admin@example.com", SubPassword: "private-password"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSubReport(input, now); err == nil {
+		t.Fatal("enabled without Bark endpoint")
+	}
+	if err := store.SetBarkURL("https://bark.example/device-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSubReport(input, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	config := store.SubReport()
+	if !config.NextRunAt.Equal(now) {
+		t.Fatal("wrong initial slot")
+	}
+	if err := store.SetSubReport(input, now.Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if !store.SubReport().NextRunAt.Equal(now) {
+		t.Fatal("saving unchanged schedule skipped a due slot")
+	}
+	statePath := store.statePath
+	store.statePath = store.dataDir + "/missing/state.json"
+	if _, due, err := store.claimSubReport(now); err == nil || due {
+		t.Fatal("claimed report before durable slot persistence")
+	}
+	store.statePath = statePath
+	if !store.SubReport().NextRunAt.Equal(now) {
+		t.Fatal("failed persistence advanced report schedule")
+	}
+	var wg sync.WaitGroup
+	var claims int
+	var mu sync.Mutex
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, due, err := store.claimSubReport(now.Add(20 * time.Second))
+			if err != nil {
+				t.Error(err)
+			}
+			if due {
+				mu.Lock()
+				claims++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if claims != 1 {
+		t.Fatalf("slot claimed %d times", claims)
+	}
+	reopened, err := NewStore(store.dataDir, store.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, due, err := reopened.claimSubReport(now.Add(30 * time.Second)); err != nil || due {
+		t.Fatal("slot replayed after restart")
+	}
+	// A restart late at night skips the overdue daytime slot.
+	night := now.Add(15 * time.Hour)
+	if _, due, err := reopened.claimSubReport(night); err != nil || due {
+		t.Fatal("overdue report replayed at night")
+	}
+	if !reopened.SubReport().NextRunAt.Equal(now.Add(24 * time.Hour)) {
+		t.Fatal("next daytime slot incorrect")
+	}
+	for _, bad := range []SubReportInput{
+		{CronExpression: "* * * * *"}, {CronExpression: "invalid"}, {CronExpression: defaultSubReportCron, TeamMinimum: -1}, {CronExpression: defaultSubReportCron, DegradedMinimum: 10001},
+	} {
+		if err := store.SetSubReport(bad, now); err == nil {
+			t.Fatal("accepted invalid report settings")
+		}
+	}
+	input.Enabled = false
+	if err := store.SetSubReport(input, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, due, err := store.claimSubReport(now.Add(48 * time.Hour)); err != nil || due {
+		t.Fatal("disabled schedule sent report")
+	}
+	public, _ := json.Marshal(store.PublicState(nil))
+	if strings.Contains(string(public), "sub_report") {
+		t.Fatal("administrator report settings leaked publicly")
+	}
+}
+
+func TestSubReportMessagesAndDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode     string
+		team, degraded int
+		warning        bool
+	}{
+		{"healthy boundary", "ok", 5, 1, false},
+		{"team low", "ok", 4, 1, true},
+		{"degraded low", "ok", 5, 0, true},
+		{"both low", "ok", 0, 0, true},
+		{"unknown group", "missing", 5, 1, true},
+		{"ambiguous group", "ambiguous", 5, 1, true},
+		{"partial stats failure", "stats-fail", 5, 1, true},
+		{"login failure", "login-fail", 5, 1, true},
+		{"Bark failure", "bark-fail", 5, 1, false},
+		{"free spans multiple pages", "free-pages", 5, 1, false},
+		{"zero thresholds disable shortage warning", "zero-thresholds", 0, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := testStore(t)
+			var delivered string
+			barkCalls := 0
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/api/v1/auth/login":
+					if tc.mode == "login-fail" {
+						w.WriteHeader(401)
+						return
+					}
+					writeJSON(w, 200, map[string]any{"code": 0, "data": map[string]string{"access_token": "secret-session"}})
+				case "/api/v1/admin/groups/all":
+					groups := []subGroup{{15, "team", "openai"}, {18, "降智", "openai"}, {19, "free", "openai"}}
+					if tc.mode == "missing" {
+						groups = groups[:2]
+					}
+					if tc.mode == "ambiguous" {
+						groups = append(groups, subGroup{20, "team", "openai"})
+					}
+					writeJSON(w, 200, map[string]any{"code": 0, "data": groups})
+				case "/api/v1/admin/accounts":
+					if req.Method != "GET" || req.Header.Get("Authorization") != "Bearer secret-session" {
+						t.Error("invalid read-only stats request")
+					}
+					group := req.URL.Query().Get("group")
+					if tc.mode == "stats-fail" && group == "15" {
+						w.WriteHeader(503)
+						return
+					}
+					count, id := 0, int64(15)
+					switch group {
+					case "15":
+						count = tc.team
+					case "18":
+						count = tc.degraded
+						id = 18
+					case "19":
+						id = 19
+						if tc.mode == "free-pages" {
+							count = 2
+						}
+					default:
+						t.Error("unexpected group")
+					}
+					items := make([]subAccount, 0, count)
+					for i := range count {
+						items = append(items, subAccount{ID: int64(i + 1), Platform: "openai", GroupIDs: []int64{id}, Status: "active", Schedulable: true})
+					}
+					if tc.mode == "free-pages" && group == "19" {
+						if req.URL.Query().Get("page") == "1" {
+							items = items[:1]
+						} else {
+							items = items[1:]
+						}
+						writeJSON(w, 200, map[string]any{"code": 0, "data": map[string]any{"items": items, "total": 2, "page_size": 1}})
+						return
+					}
+					writeJSON(w, 200, map[string]any{"code": 0, "data": map[string]any{"items": items, "total": count, "page_size": 1000}})
+				default:
+					if !strings.HasPrefix(req.URL.Path, "/device/") {
+						t.Errorf("unexpected API/write %s %s", req.Method, req.URL.Path)
+						w.WriteHeader(404)
+						return
+					}
+					barkCalls++
+					delivered = req.URL.Path
+					if tc.mode == "bark-fail" {
+						w.WriteHeader(500)
+						return
+					}
+					writeJSON(w, 200, map[string]int{"code": 200})
+				}
+			}))
+			defer server.Close()
+			if err := store.SetRemediationConfig(RemediationConfig{SubURL: server.URL, SubEmail: "admin@example.com", SubPassword: "private-password"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SetBarkURL(server.URL + "/device"); err != nil {
+				t.Fatal(err)
+			}
+			runner := NewRunner(store, server.URL)
+			runner.client = server.Client()
+			config := store.SubReport()
+			if tc.mode == "zero-thresholds" {
+				config.TeamMinimum, config.DegradedMinimum = 0, 0
+			}
+			message, err := runner.sendSubReport(context.Background(), config)
+			if (err != nil) != (tc.mode == "bark-fail") {
+				t.Fatalf("delivery error mismatch: %v", err)
+			}
+			if barkCalls != 1 {
+				t.Fatalf("sent %d Bark requests", barkCalls)
+			}
+			if strings.Contains(delivered, "⚠️") != tc.warning {
+				t.Fatalf("incorrect warning title: %s", delivered)
+			}
+			for _, name := range []string{"team", "降智", "free"} {
+				if !strings.Contains(message, name+"分组：") {
+					t.Fatalf("missing %s stats", name)
+				}
+			}
+			if tc.mode == "ok" || tc.mode == "bark-fail" {
+				if strings.Contains(message, "team 可用仅") != (tc.team < 5) || strings.Contains(message, "降智 可用仅") != (tc.degraded < 1) {
+					t.Fatal("threshold warning mismatch")
+				}
+				if !strings.Contains(message, "free分组：可用:0个账号") {
+					t.Fatal("empty free group not counted")
+				}
+			}
+			if tc.mode == "stats-fail" && (!strings.Contains(message, "team分组：统计读取失败") || !strings.Contains(message, "降智分组：可用:1个账号") || strings.Contains(message, "team 可用仅 0")) {
+				t.Fatal("partial failure fabricated a shortage or lost other groups")
+			}
+			if tc.mode == "free-pages" && !strings.Contains(message, "free分组：可用:2个账号") {
+				t.Fatal("report truncated free account pages")
+			}
+			if strings.Contains(message, server.URL) || strings.Contains(message, "private-password") || strings.Contains(message, "secret-session") {
+				t.Fatal("upstream credentials exposed")
+			}
+			status := store.SubReport()
+			if status.LastMessage != message || status.LastAttemptAt.IsZero() || status.LastSentAt.IsZero() != (tc.mode == "bark-fail") {
+				t.Fatalf("delivery audit missing: %+v", status)
+			}
+			if !status.NextRunAt.Equal(config.NextRunAt) {
+				t.Fatal("manual send changed schedule")
+			}
+			if tc.mode == "bark-fail" && status.LastError == "" {
+				t.Fatal("delivery failure not saved")
+			}
+		})
+	}
+}
+
+func TestSubReportAdminAuthorization(t *testing.T) {
+	store := testStore(t)
+	hash := sha256.Sum256([]byte("test-admin"))
+	auth, err := NewAuth(hex.EncodeToString(hash[:]), make([]byte, 32), "https://monitor.example", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{store: store, runner: NewRunner(store, ""), auth: auth}
+	issued := httptest.NewRecorder()
+	claims, err := auth.issueSession(issued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/admin/sub-report", "/api/admin/sub-report/test"} {
+		method := "PUT"
+		if strings.HasSuffix(path, "/test") {
+			method = "POST"
+		}
+		for _, tc := range []struct {
+			cookie, origin, csrf bool
+			want                 int
+		}{{false, false, false, 401}, {true, false, true, 403}, {true, true, false, 403}} {
+			req := httptest.NewRequest(method, path, strings.NewReader(`{}`))
+			if tc.cookie {
+				req.AddCookie(issued.Result().Cookies()[0])
+			}
+			if tc.origin {
+				req.Header.Set("Origin", "https://monitor.example")
+			}
+			if tc.csrf {
+				req.Header.Set("X-CSRF-Token", claims.CSRF)
+			}
+			response := httptest.NewRecorder()
+			app.routes().ServeHTTP(response, req)
+			if response.Code != tc.want {
+				t.Fatalf("%s authorization %d want %d", path, response.Code, tc.want)
+			}
+		}
+	}
+	request := httptest.NewRequest("PUT", "/api/admin/sub-report", strings.NewReader(`{"enabled":false,"cron_expression":"0 8-22/2 * * *","team_minimum":5,"degraded_minimum":1}`))
+	request.AddCookie(issued.Result().Cookies()[0])
+	request.Header.Set("Origin", "https://monitor.example")
+	request.Header.Set("X-CSRF-Token", claims.CSRF)
+	response := httptest.NewRecorder()
+	app.routes().ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatal(response.Body.String())
+	}
+	app.runner.reportMu.Lock()
+	defer app.runner.reportMu.Unlock()
+	request = httptest.NewRequest("POST", "/api/admin/sub-report/test", nil)
+	request.AddCookie(issued.Result().Cookies()[0])
+	request.Header.Set("Origin", "https://monitor.example")
+	request.Header.Set("X-CSRF-Token", claims.CSRF)
+	response = httptest.NewRecorder()
+	app.routes().ServeHTTP(response, request)
+	if response.Code != 409 {
+		t.Fatal("overlapping report not rejected")
+	}
+}

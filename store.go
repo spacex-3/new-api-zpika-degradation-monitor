@@ -23,12 +23,13 @@ import (
 const stateVersion = 1
 
 type Settings struct {
-	EncryptedRemediation string `json:"encrypted_remediation,omitempty"`
-	EncryptedBaseURL     string `json:"encrypted_base_url,omitempty"`
-	BaseURLConfigured    bool   `json:"base_url_configured"`
-	EncryptedBarkURL     string `json:"encrypted_bark_url,omitempty"`
-	BarkConfigured       bool   `json:"bark_configured"`
-	NotifyAll            bool   `json:"notify_all,omitempty"`
+	SubReport            SubReportSettings `json:"sub_report,omitempty"`
+	EncryptedRemediation string            `json:"encrypted_remediation,omitempty"`
+	EncryptedBaseURL     string            `json:"encrypted_base_url,omitempty"`
+	BaseURLConfigured    bool              `json:"base_url_configured"`
+	EncryptedBarkURL     string            `json:"encrypted_bark_url,omitempty"`
+	BarkConfigured       bool              `json:"bark_configured"`
+	NotifyAll            bool              `json:"notify_all,omitempty"`
 }
 
 type Target struct {
@@ -755,6 +756,7 @@ func (s *Store) AdminState(running map[string]bool) map[string]any {
 		"failures":               failures,
 		"remediation_configured": s.state.Settings.EncryptedRemediation != "",
 		"remediations":           slices.Clone(s.state.Remediations),
+		"sub_report":             s.subReportLocked(),
 	}
 }
 
